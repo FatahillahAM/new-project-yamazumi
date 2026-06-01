@@ -55,16 +55,20 @@ new
     }
 
     public function updatedFileList()
-    {
-        foreach ($this->file_list as $i => $file) {
-            if (!isset($this->station_name[$i])) {
-                $this->station_name[$i] = pathinfo(
-                    $file->getClientOriginalName(),
-                    PATHINFO_FILENAME
-                );
-            }
-        }
+{
+    // Reset station_name setiap kali file_list berubah
+    $this->station_name = [];
+
+    foreach ($this->file_list as $i => $file) {
+        $this->station_name[$i] = pathinfo(
+            $file->getClientOriginalName(),
+            PATHINFO_FILENAME
+        );
     }
+
+    // Force step update
+    $this->updateStep();
+}
 
     public function removeVideo($i)
     {

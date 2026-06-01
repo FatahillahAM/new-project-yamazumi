@@ -220,8 +220,9 @@ hover:border-[#2A5298] hover:bg-[#2A5298]/10 hover:text-[#2A5298] transition cur
 
             @if ($file_list)
                 <div class="mt-4 flex flex-col gap-3 w-full">
-                    @foreach ($file_list as $index => $video)
-                        @if (in_array(strtolower($video->getClientOriginalExtension()), ['mp4', 'mov', 'avi', 'mkv', 'mts']))
+                    @foreach ($station_name as $index => $name)
+                    @php $video = $file_list[$index] ?? null; @endphp
+                    @if ($video && in_array(strtolower($video->getClientOriginalExtension()), ['mp4', 'mov', 'avi', 'mkv', 'mts']))
 
                             <div wire:key="video-{{ $index }}"
                                 class="flex items-center justify-between gap-4 p-4
