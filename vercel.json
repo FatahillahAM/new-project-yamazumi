@@ -2,7 +2,8 @@
   "version": 2,
   "framework": null,
   "installCommand": "composer install --no-dev --optimize-autoloader",
-  "buildCommand": "echo 'skip'",
+  "buildCommand": "echo skip",
+  "outputDirectory": "public",
   "functions": {
     "api/index.php": {
       "runtime": "vercel-php@0.7.2",
