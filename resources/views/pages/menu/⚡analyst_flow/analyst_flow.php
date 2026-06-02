@@ -54,29 +54,35 @@ new
         }
     }
 
+    /**
+     * Dipanggil setiap kali file_list berubah (setelah upload selesai).
+     * FIX: rebuild station_name penuh + force step update agar UI reaktif.
+     */
     public function updatedFileList()
-{
-    // Reset station_name setiap kali file_list berubah
-    $this->station_name = [];
+    {
+        // Rebuild station_name dari file_list (pertahankan nama yg sudah diedit user)
+        $newStationNames = [];
+        foreach ($this->file_list as $i => $file) {
+            $newStationNames[$i] = $this->station_name[$i]
+                ?? pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
+        }
+        $this->station_name = $newStationNames;
 
-    foreach ($this->file_list as $i => $file) {
-        $this->station_name[$i] = pathinfo(
-            $file->getClientOriginalName(),
-            PATHINFO_FILENAME
-        );
+        $this->updateStep();
     }
-
-    // Force step update
-    $this->updateStep();
-}
 
     public function removeVideo($i)
     {
         unset($this->file_list[$i]);
         unset($this->station_name[$i]);
 
+        // Re-index agar key array tetap berurutan (0,1,2,...)
         $this->file_list    = array_values($this->file_list);
         $this->station_name = array_values($this->station_name);
+
+        if (empty($this->file_list)) {
+            $this->step = 2;
+        }
     }
 
     public function getTaktTimeProperty()
