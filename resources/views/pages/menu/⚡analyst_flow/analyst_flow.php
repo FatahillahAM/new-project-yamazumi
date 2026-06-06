@@ -38,37 +38,54 @@ new
         'station_name.*'  => 'required|string|max:100',
     ];
 
+    /**
+     * Hook generic updated() — PASTI fire untuk SEMUA perubahan property,
+     * termasuk array file upload (yang updatedFileList() tidak fire di LW4).
+     *
+     * $field bisa berupa: 'line_name', 'output_harian', 'file_list',
+     *                     'file_list.0', 'file_list.1', dst.
+     */
     public function updated($field)
     {
+        // Kalau yang berubah ada hubungannya dengan file_list → sync station_name
+        if (str_starts_with($field, 'file_list')) {
+            $this->syncStationNames();
+        }
+
         $this->updateStep();
     }
 
-    private function updateStep()
+    /**
+     * Sinkronkan station_name dengan file_list.
+     * Pertahankan nama yang sudah diedit user, isi default untuk file baru.
+     */
+    private function syncStationNames(): void
     {
-        if ($this->line_name && $this->output_harian) {
-            $this->step = 2;
+        $newNames = [];
+        foreach ($this->file_list as $i => $file) {
+            // Pertahankan nama lama kalau ada, kalau tidak ambil dari nama file
+            if (isset($this->station_name[$i]) && !empty($this->station_name[$i])) {
+                $newNames[$i] = $this->station_name[$i];
+            } else {
+                $newNames[$i] = pathinfo(
+                    $file->getClientOriginalName(),
+                    PATHINFO_FILENAME
+                );
+            }
         }
+        $this->station_name = $newNames;
+    }
 
+    private function updateStep(): void
+    {
         if (!empty($this->file_list)) {
             $this->step = 3;
+        } elseif ($this->line_name && $this->output_harian) {
+            $this->step = 2;
+        } else {
+            $this->step = 1;
         }
     }
-
-    public function updatedFileList()
-{
-    // Reset station_name setiap kali file_list berubah
-    $this->station_name = [];
-
-    foreach ($this->file_list as $i => $file) {
-        $this->station_name[$i] = pathinfo(
-            $file->getClientOriginalName(),
-            PATHINFO_FILENAME
-        );
-    }
-
-    // Force step update
-    $this->updateStep();
-}
 
     public function removeVideo($i)
     {
@@ -77,6 +94,8 @@ new
 
         $this->file_list    = array_values($this->file_list);
         $this->station_name = array_values($this->station_name);
+
+        $this->updateStep();
     }
 
     public function getTaktTimeProperty()
@@ -114,7 +133,7 @@ new
             'status'          => 'pending',
         ]);
 
-        // 2. Simpan video ke storage (cepat, file sudah di temp Livewire)
+        // 2. Simpan video ke storage
         $videoMap = [];
         foreach ($this->file_list as $i => $file) {
             $name = $this->station_name[$i] ?? 'Stasiun ' . ($i + 1);
@@ -133,7 +152,7 @@ new
             'nama_bagian'   => $this->part_name ?? $this->line_name,
         ];
 
-        // 4. Dispatch ke queue worker (upload ke Flask berjalan di background CLI)
+        // 4. Dispatch ke queue (atau sync kalau QUEUE_CONNECTION=sync)
         ProcessVideoAnalysis::dispatch($job->id, $videoMap, $metadata);
 
         $this->dispatch(
