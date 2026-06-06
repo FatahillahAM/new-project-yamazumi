@@ -82,5 +82,7 @@ text-gray-200">
         }, 100);
       });
     </script>
+
+    @fluxScripts          {{-- ← TAMBAHKAN BARIS INI --}}
 </body>
 </html>
