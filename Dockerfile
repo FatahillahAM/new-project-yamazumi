@@ -1,42 +1,22 @@
 # ============================================================
-# Dockerfile untuk Railway — Laravel 12 + Livewire 4 + Flux
-# PHP 8.3 + upload limits + storage setup + auto-clean temp
+# Dockerfile Railway — Laravel 12 + Livewire 4 + Flux
+# FrankenPHP (production server) — ganti php artisan serve
+# Fix root cause: temp file hilang karena artisan serve tidak stabil
 # ============================================================
 
-FROM php:8.3-cli
+FROM dunglas/frankenphp:1-php8.3
 
-ENV COMPOSER_ALLOW_SUPERUSER=1
+# ── PHP extensions ───────────────────────────────────────────
+RUN install-php-extensions \
+    gd \
+    zip \
+    pdo_mysql \
+    mbstring \
+    bcmath \
+    exif \
+    opcache
 
-# ── System dependencies + PHP extensions ────────────────────
-RUN apt-get update && apt-get install -y \
-    git \
-    unzip \
-    curl \
-    libzip-dev \
-    libpng-dev \
-    libjpeg-dev \
-    libfreetype6-dev \
-    libonig-dev \
-    libxml2-dev \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install -j$(nproc) \
-        gd \
-        zip \
-        pdo_mysql \
-        mbstring \
-        bcmath \
-        exif \
-    && rm -rf /var/lib/apt/lists/*
-
-# ── Node.js 20 (untuk Vite build) ───────────────────────────
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-# ── Composer ─────────────────────────────────────────────────
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
-
-# ── PHP CONFIG: upload limits untuk video besar ─────────────
+# ── PHP config: upload limits untuk video besar ─────────────
 RUN { \
     echo "upload_max_filesize = 250M"; \
     echo "post_max_size = 260M"; \
@@ -46,31 +26,38 @@ RUN { \
     echo "max_file_uploads = 50"; \
     } > /usr/local/etc/php/conf.d/uploads.ini
 
-WORKDIR /app
+# ── Node.js 20 untuk Vite build ─────────────────────────────
+RUN apt-get update && apt-get install -y curl \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
-# ── Copy project ─────────────────────────────────────────────
+# ── Composer ─────────────────────────────────────────────────
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+WORKDIR /app
 COPY . .
 
 # ── Install dependencies ─────────────────────────────────────
 RUN composer install --no-dev --optimize-autoloader --no-interaction
 RUN npm install && npm run build
 
+# ── Struktur storage ─────────────────────────────────────────
+# CATATAN: Laravel 11+ disk 'local' root = storage/app/private
+RUN mkdir -p \
+    storage/app/private/livewire-tmp \
+    storage/app/public/analisis_videos \
+    storage/framework/cache/data \
+    storage/framework/sessions \
+    storage/framework/views \
+    storage/logs \
+    && chmod -R 775 storage bootstrap/cache
+
 EXPOSE 8080
 
-# ── Start: setup storage + AUTO-CLEAN temp + migrate + serve ─
-# - Buat struktur folder (Volume mount awalnya kosong)
-# - Bersihkan livewire-tmp lama (cegah volume penuh)
-CMD mkdir -p \
-        storage/app/public \
-        storage/app/livewire-tmp \
-        storage/app/public/analisis_videos \
-        storage/framework/cache/data \
-        storage/framework/sessions \
-        storage/framework/views \
-        storage/logs && \
-    find storage/app/livewire-tmp -type f -mmin +60 -delete 2>/dev/null; \
-    chmod -R 775 storage bootstrap/cache && \
-    php artisan storage:link --force 2>/dev/null; \
+# ── Start: FrankenPHP serve (HTTP, di belakang proxy Railway) ─
+# SERVER_NAME hanya port → FrankenPHP serve HTTP tanpa TLS
+CMD php artisan storage:link --force 2>/dev/null; \
     php artisan migrate --force && \
     php artisan config:cache && \
-    php artisan serve --host=0.0.0.0 --port=${PORT:-8080}
+    SERVER_NAME=":${PORT:-8080}" frankenphp php-server --root public/
