@@ -1,6 +1,6 @@
 # ============================================================
 # Dockerfile untuk Railway — Laravel 12 + Livewire 4 + Flux
-# PHP 8.3 + extension + UPLOAD LIMITS untuk video besar
+# PHP 8.3 + upload limits + storage setup untuk Volume
 # ============================================================
 
 FROM php:8.3-cli
@@ -36,13 +36,11 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # ── Composer ─────────────────────────────────────────────────
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# ── PHP CONFIG: NAIKKAN UPLOAD LIMITS (FIX video stuck 100%) ─
-# Default PHP cli: upload_max_filesize=2M, post_max_size=8M (TERLALU KECIL)
-# Naikkan ke 250M agar video besar bisa diupload
+# ── PHP CONFIG: upload limits untuk video besar ─────────────
 RUN { \
     echo "upload_max_filesize = 250M"; \
     echo "post_max_size = 260M"; \
-    echo "memory_limit = 512M"; \
+    echo "memory_limit = 256M"; \
     echo "max_execution_time = 300"; \
     echo "max_input_time = 300"; \
     echo "max_file_uploads = 50"; \
@@ -53,21 +51,24 @@ WORKDIR /app
 # ── Copy project ─────────────────────────────────────────────
 COPY . .
 
-# ── Install PHP dependencies (production only) ──────────────
+# ── Install dependencies ─────────────────────────────────────
 RUN composer install --no-dev --optimize-autoloader --no-interaction
-
-# ── Install & build frontend assets ─────────────────────────
 RUN npm install && npm run build
-
-# ── Set permissions untuk storage ───────────────────────────
-RUN chmod -R 775 storage bootstrap/cache \
-    && mkdir -p storage/app/public storage/app/livewire-tmp \
-    && chmod -R 775 storage/app
 
 EXPOSE 8080
 
-# ── Start: link storage + migrate + serve ───────────────────
-CMD php artisan storage:link --force 2>/dev/null; \
+# ── Start: setup storage (untuk Volume) + migrate + serve ───
+# Folder storage dibuat ulang di sini karena Volume mount awalnya kosong
+CMD mkdir -p \
+        storage/app/public \
+        storage/app/livewire-tmp \
+        storage/app/public/analisis_videos \
+        storage/framework/cache/data \
+        storage/framework/sessions \
+        storage/framework/views \
+        storage/logs && \
+    chmod -R 775 storage bootstrap/cache && \
+    php artisan storage:link --force 2>/dev/null; \
     php artisan migrate --force && \
     php artisan config:cache && \
     php artisan serve --host=0.0.0.0 --port=${PORT:-8080}
