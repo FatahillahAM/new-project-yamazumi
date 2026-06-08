@@ -10,25 +10,14 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class ProcessVideoAnalysis implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /**
-     * Batas waktu job (detik). Sesuaikan dengan estimasi proses video terlama.
-     * 900 detik = 15 menit.
-     */
     public int $timeout = 900;
-
-    /**
-     * Jumlah retry jika job gagal.
-     */
-    public int $tries = 2;
-
-    /**
-     * Jeda antar retry (detik).
-     */
+    public int $tries   = 2;
     public int $backoff = 10;
 
     public function __construct(
@@ -58,27 +47,61 @@ class ProcessVideoAnalysis implements ShouldQueue
 
             Log::info("[ProcessVideoAnalysis] Selesai job #{$this->jobId}, python_job_id={$result['job_id']}");
 
+            // ════════════════════════════════════════════════════════
+            // HAPUS VIDEO LOKAL setelah BERHASIL dikirim ke HuggingFace
+            // (HF sudah pegang video & job_id → file lokal tidak dibutuhkan)
+            // Ini mencegah volume Railway penuh
+            // ════════════════════════════════════════════════════════
+            $this->cleanupVideos();
+
         } catch (\Throwable $e) {
             Log::error("[ProcessVideoAnalysis] Gagal job #{$this->jobId}: " . $e->getMessage());
 
-            // Tandai failed hanya di attempt terakhir agar retry bisa berjalan
             if ($this->attempts() >= $this->tries) {
                 $job->update(['status' => 'failed', 'error_msg' => $e->getMessage()]);
+                // Hapus video juga kalau sudah final gagal (tidak akan di-retry lagi)
+                $this->cleanupVideos();
             }
 
-            // Lempar ulang agar Laravel Queue mencatat sebagai failed & trigger retry
             throw $e;
         }
     }
 
     /**
-     * Dipanggil Laravel setelah semua retry habis dan job tetap gagal.
+     * Hapus file video lokal + folder job-nya dari storage.
+     * Dipanggil setelah video berhasil dikirim ke HF (atau final gagal).
      */
+    private function cleanupVideos(): void
+    {
+        try {
+            $disk = Storage::disk('public');
+
+            foreach ($this->videoMap as $relativePath) {
+                if ($disk->exists($relativePath)) {
+                    $disk->delete($relativePath);
+                }
+            }
+
+            // Hapus folder job kalau sudah kosong (analisis_videos/{jobId})
+            $jobFolder = "analisis_videos/{$this->jobId}";
+            if ($disk->exists($jobFolder)) {
+                $disk->deleteDirectory($jobFolder);
+            }
+
+            Log::info("[ProcessVideoAnalysis] Video lokal job #{$this->jobId} dibersihkan.");
+        } catch (\Throwable $e) {
+            // Cleanup gagal tidak boleh menggagalkan job utama — cukup log
+            Log::warning("[ProcessVideoAnalysis] Gagal cleanup video job #{$this->jobId}: " . $e->getMessage());
+        }
+    }
+
     public function failed(\Throwable $exception): void
     {
         Log::error("[ProcessVideoAnalysis] Job #{$this->jobId} FINAL GAGAL: " . $exception->getMessage());
 
-        AnalysisJob::where('id', $this->jobId)
-            ->update(['status' => 'failed']);
+        AnalysisJob::where('id', $this->jobId)->update(['status' => 'failed']);
+
+        // Pastikan video tetap dibersihkan walau job gagal total
+        $this->cleanupVideos();
     }
 }
