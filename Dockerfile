@@ -1,7 +1,6 @@
 # ============================================================
 # Dockerfile Railway — Laravel 12 + Livewire 4 + Flux
-# FrankenPHP (production server) — ganti php artisan serve
-# Fix root cause: temp file hilang karena artisan serve tidak stabil
+# FrankenPHP — FIX port binding (listen di $PORT Railway)
 # ============================================================
 
 FROM dunglas/frankenphp:1-php8.3
@@ -16,7 +15,7 @@ RUN install-php-extensions \
     exif \
     opcache
 
-# ── PHP config: upload limits untuk video besar ─────────────
+# ── PHP config: upload limits ────────────────────────────────
 RUN { \
     echo "upload_max_filesize = 250M"; \
     echo "post_max_size = 260M"; \
@@ -26,7 +25,7 @@ RUN { \
     echo "max_file_uploads = 50"; \
     } > /usr/local/etc/php/conf.d/uploads.ini
 
-# ── Node.js 20 untuk Vite build ─────────────────────────────
+# ── Node.js 20 untuk Vite ────────────────────────────────────
 RUN apt-get update && apt-get install -y curl \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
@@ -42,8 +41,7 @@ COPY . .
 RUN composer install --no-dev --optimize-autoloader --no-interaction
 RUN npm install && npm run build
 
-# ── Struktur storage ─────────────────────────────────────────
-# CATATAN: Laravel 11+ disk 'local' root = storage/app/private
+# ── Struktur storage (Laravel 11+ local = storage/app/private) ─
 RUN mkdir -p \
     storage/app/private/livewire-tmp \
     storage/app/public/analisis_videos \
@@ -55,9 +53,6 @@ RUN mkdir -p \
 
 EXPOSE 8080
 
-# ── Start: FrankenPHP serve (HTTP, di belakang proxy Railway) ─
-# SERVER_NAME hanya port → FrankenPHP serve HTTP tanpa TLS
-CMD php artisan storage:link --force 2>/dev/null; \
-    php artisan migrate --force && \
-    php artisan config:cache && \
-    SERVER_NAME=":${PORT:-8080}" frankenphp php-server --root public/
+# ── Start: FrankenPHP listen di $PORT Railway (HTTP) ─────────
+# Pakai sh -c agar ${PORT} ter-expand; --listen eksplisit; bare port = HTTP
+CMD ["sh", "-c", "php artisan storage:link --force 2>/dev/null; php artisan migrate --force; php artisan config:cache; exec frankenphp php-server --listen :${PORT:-8080} --root public/"]
