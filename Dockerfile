@@ -1,6 +1,6 @@
 # ============================================================
 # Dockerfile untuk Railway — Laravel 12 + Livewire 4 + Flux
-# PHP 8.3 + upload limits + storage setup untuk Volume
+# PHP 8.3 + upload limits + storage setup + auto-clean temp
 # ============================================================
 
 FROM php:8.3-cli
@@ -57,8 +57,9 @@ RUN npm install && npm run build
 
 EXPOSE 8080
 
-# ── Start: setup storage (untuk Volume) + migrate + serve ───
-# Folder storage dibuat ulang di sini karena Volume mount awalnya kosong
+# ── Start: setup storage + AUTO-CLEAN temp + migrate + serve ─
+# - Buat struktur folder (Volume mount awalnya kosong)
+# - Bersihkan livewire-tmp lama (cegah volume penuh)
 CMD mkdir -p \
         storage/app/public \
         storage/app/livewire-tmp \
@@ -67,6 +68,7 @@ CMD mkdir -p \
         storage/framework/sessions \
         storage/framework/views \
         storage/logs && \
+    find storage/app/livewire-tmp -type f -mmin +60 -delete 2>/dev/null; \
     chmod -R 775 storage bootstrap/cache && \
     php artisan storage:link --force 2>/dev/null; \
     php artisan migrate --force && \
