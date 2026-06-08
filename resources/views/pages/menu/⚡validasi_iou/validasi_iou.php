@@ -1,6 +1,6 @@
 <?php
 
-use App\Models\TemporalIouResult;
+use App\Models\TemporalIoUResult;
 use App\Models\StationResult;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
