@@ -183,13 +183,14 @@
                         @endphp
 
                         <flux:table.row>
-                            <flux:table.cell align="left" class="!px-4">
+                            <flux:table.cell align="left" class="!px-4 !align-top max-w-[180px]">
                                 <div
-                                    class="font-medium text-sm text-pretty md:text-balance text-gray-800 dark:text-gray-100">
+                                    class="font-medium text-sm leading-tight whitespace-normal break-words text-gray-800 dark:text-gray-100"
+                                    title="{{ $station }}">
                                     {{ $station }}
                                 </div>
                             </flux:table.cell>
-                            <flux:table.cell align="center">
+                            <flux:table.cell align="center" class="!align-top whitespace-nowrap">
                                 <div class="font-medium text-sm text-{{ $color }}-600">
                                     {{ number_format($ct, 1) }}s
                                 </div>
@@ -288,12 +289,24 @@
 
 @script
 <script>
-    document.addEventListener('livewire:navigated', function () {
-        const taktTime = @json($taktTime);
-        const stations = @json($stations);
-        const meanData = @json($meanCT);
-        const robustData = @json($robustCT);
-        const cvData = @json($cvData);
+    let ctChartInstance = null;
+
+    function renderCtChart() {
+        const el = document.querySelector("#ctChart");
+        if (!el) return; // container belum ada (masih loading) → lewati
+
+        // Ambil data TERBARU dari komponen (bukan nilai lama saat halaman baru dibuka)
+        const taktTime   = $wire.get('taktTime');
+        const stations   = $wire.get('stations') || [];
+        const meanData   = $wire.get('meanCT') || [];
+        const robustData = $wire.get('robustCT') || [];
+        const cvData     = $wire.get('cvData') || [];
+
+        if (!stations.length) return; // data belum siap → lewati
+
+        // Hapus chart lama agar tidak dobel saat render ulang
+        if (ctChartInstance) { try { ctChartInstance.destroy(); } catch (e) {} ctChartInstance = null; }
+        el.innerHTML = '';
 
         // ================= STATUS STATION =================
 
@@ -468,11 +481,16 @@
 
         }
         // ================= RENDER =================
-        new ApexCharts(
-            document.querySelector("#ctChart"),
-            ctOptions
-        ).render();
-    });
+        ctChartInstance = new ApexCharts(el, ctOptions);
+        ctChartInstance.render();
+    }
+
+    // 1. Render saat komponen dimuat / pindah halaman, mis. buka dari Riwayat
+    setTimeout(renderCtChart, 50);
+
+    // 2. Render OTOMATIS begitu analisa selesai via polling,
+    //    tanpa harus pindah halaman dulu. Beri jeda agar #ctChart sempat tampil.
+    $wire.on('results-ready', () => setTimeout(renderCtChart, 200));
 </script>
 @endscript
 </div>

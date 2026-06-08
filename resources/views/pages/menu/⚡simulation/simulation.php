@@ -215,6 +215,26 @@ new
         $st  = $this->simulation;
         $job = $this->job;
 
+        // Poin 5: Output per hari SEBELUM vs SESUDAH Kaizen.
+        // SEBELUM = output line aktual (dari analisa awal).
+        // SESUDAH = waktu kerja / CT EFEKTIF terbesar (memperhitungkan operator paralel).
+        $jamKerja = 25920.0; // 7.2 jam kerja efektif (sinkron dengan JAM_KERJA_DETIK di Python)
+        $taktTime = $this->taktTime ?? 0;
+        $target   = intval($job->output_harian ?? 0);
+
+        $outputBefore = intval(round($job->line_output_hari ?? 0));
+
+        $effNeckAfter = $this->simulationStations->max('ct_efektif');
+        if (!$effNeckAfter || $effNeckAfter <= 0) {
+            $effNeckAfter = $st->neck_after ?: 0;
+        }
+        $outputAfter = ($effNeckAfter > 0) ? intval($jamKerja / $effNeckAfter) : $outputBefore;
+
+        // Pengaman: hasil Kaizen tidak boleh di bawah target produksi
+        if ($target > 0) {
+            $outputAfter = max($outputAfter, $target);
+        }
+
         return [
             ['label' => 'Line Efficiency',   'before' => round($st->le_before  ?? 0, 2) . '%',   'after' => round($st->le_after   ?? 0, 2) . '%'],
             ['label' => 'Balance Delay',     'before' => round($st->bd_before  ?? 0, 2) . '%',   'after' => round($st->bd_after   ?? 0, 2) . '%'],
@@ -223,7 +243,7 @@ new
             ['label' => 'Total NVA Saving',  'before' => '—',                                     'after' => ($st->total_saving_nva ?? 0) . 's'],
             ['label' => 'Op. Teoritis',      'before' => '—',                                     'after' => round($st->op_teoritis_after ?? 0, 1)],
             ['label' => 'Overall MP Balance','before' => '—',                                     'after' => round($st->overall_mp_balance ?? 0, 1) . '%'],
-            ['label' => 'Output / Hari',     'before' => round($job->output_harian ?? 0, 1) . ' pcs', 'after' => round($job->line_output_hari ?? 0, 1) . ' pcs'],
+            ['label' => 'Output / Hari',     'before' => $outputBefore . ' pcs',                  'after' => $outputAfter . ' pcs'],
         ];
     }
 
@@ -242,6 +262,56 @@ new
         ];
     }
 
+    /**
+     * Ubah nama stasiun teknis jadi lebih mudah dibaca orang awam.
+     * Contoh: '1_Jahit_PsgLengan_JasA' -> 'Menjahit Pasang Lengan Jas A (Stasiun 1)'
+     */
+    private function rapikanNamaStasiun(?string $nama): string
+    {
+        if (!$nama) return '-';
+        $teks = trim($nama);
+
+        // Pisahkan nomor stasiun di depan (mis. '1_...')
+        $nomor = '';
+        if (str_contains($teks, '_')) {
+            [$head, $rest] = explode('_', $teks, 2);
+            if (ctype_digit($head)) {
+                $nomor = $head;
+                $teks  = $rest;
+            }
+        }
+
+        // Ganti underscore/dash jadi spasi
+        $teks = str_replace(['_', '-'], ' ', $teks);
+
+        // Lengkapi singkatan umum agar lebih jelas
+        $gantian = [
+            'PsgLengan' => 'Pasang Lengan',
+            'Psg'       => 'Pasang',
+            'JasA'      => 'Jas A',
+            'JasB'      => 'Jas B',
+            'Gosok'     => 'Menggosok',
+            'Jahit'     => 'Menjahit',
+        ];
+        $kata = array_map(fn($w) => $gantian[$w] ?? $w, preg_split('/\s+/', $teks));
+        $teks = trim(preg_replace('/\s+/', ' ', implode(' ', $kata)));
+
+        return $nomor ? "{$teks} (Stasiun {$nomor})" : $teks;
+    }
+
+    /**
+     * Hasilkan kalimat rekomendasi yang mudah dipahami orang awam.
+     */
+    private function buatKalimatKaizen(?string $nama, ?string $elemen, $saving): string
+    {
+        $stasiunRapi = $this->rapikanNamaStasiun($nama);
+        $detik = $saving >= 1 ? number_format($saving, 0) . ' detik' : number_format($saving, 1) . ' detik';
+        return "Di {$stasiunRapi}, terdapat gerakan yang tidak menambah nilai "
+            . "(seperti mengambil atau meletakkan barang) selama {$detik}. "
+            . "Gerakan ini sebaiknya dihilangkan atau digabung agar waktu kerja "
+            . "lebih singkat dan beban antar operator lebih seimbang.";
+    }
+
     #[Computed]
     public function kaizen()
     {
@@ -253,19 +323,21 @@ new
             ->map(function ($a) {
                 $station = $this->simulationStations->firstWhere('station_name', $a->station_from);
                 return [
-                    'priority'     => $a->priority_order,
-                    'elemen'       => $a->station_from,
-                    'status'       => $a->status_stasiun,
-                    'cv'           => $a->cv_stasiun,
-                    'task'         => $a->elemen_kerja,
-                    'kategori'     => $a->kategori_va,
-                    'before'       => round($a->durasi_before, 1),
-                    'after'        => round($a->durasi_after,  1),
-                    'saving'       => round($a->saving,        1),
-                    'pct'          => $a->pct_reduksi,
-                    'nvaPct'       => round(($station?->nva_pct_before ?? 0) * 100, 1) . '%',
-                    'nva_dominant' => $station?->is_nva_dominant ?? false,
-                    'metode'       => $a->metode,
+                    'priority'          => $a->priority_order,
+                    'elemen'            => $a->station_from,
+                    'station_rapi'      => $this->rapikanNamaStasiun($a->station_from),
+                    'status'            => $a->status_stasiun,
+                    'cv'                => $a->cv_stasiun,
+                    'task'              => $a->elemen_kerja,
+                    'kategori'          => $a->kategori_va,
+                    'before'            => round($a->durasi_before, 1),
+                    'after'             => round($a->durasi_after,  1),
+                    'saving'            => round($a->saving,        1),
+                    'pct'               => $a->pct_reduksi,
+                    'nvaPct'            => round(($station?->nva_pct_before ?? 0) * 100, 1) . '%',
+                    'nva_dominant'      => $station?->is_nva_dominant ?? false,
+                    'metode'            => $a->metode,
+                    'kalimat_sederhana' => $this->buatKalimatKaizen($a->station_from, $a->elemen_kerja, $a->saving),
                 ];
             });
     }

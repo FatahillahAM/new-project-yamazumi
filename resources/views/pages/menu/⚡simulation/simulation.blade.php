@@ -201,8 +201,8 @@
                     <!-- Header per Priority -->
                     <div class="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-300">
                         <flux:icon.chevron-right variant="micro" color="red" />
-                        <span class="tracking-wider">
-                            PRIORITAS {{ $priority }} – {{ strtoupper($first['elemen']) }}
+                        <span class="tracking-wider font-medium">
+                            PRIORITAS {{ $priority }} – {{ $first['station_rapi'] }}
                         </span>
                         <span class="text-red-500 font-semibold">
                             {{ strtoupper($first['status']) }}
@@ -233,7 +233,12 @@
                                     </flux:badge>
 
                                     <div class="flex-1">
-                                        <!-- Task + Metode -->
+                                        <!-- Penjelasan sederhana (mudah dipahami orang awam) -->
+                                        <div class="text-sm text-gray-700 dark:text-gray-200 leading-relaxed mb-2">
+                                            {{ $act['kalimat_sederhana'] }}
+                                        </div>
+
+                                        <!-- Task + Metode (detail teknis) -->
                                         <div class="font-semibold text-sm">
                                             {{ $act['task'] }}
                                             <span class="text-xs text-neutral-400 ml-1">

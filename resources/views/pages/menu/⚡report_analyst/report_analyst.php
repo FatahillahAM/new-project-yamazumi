@@ -39,10 +39,22 @@ new
     public $isFailed     = false;
     public $errorMessage = '';
 
+    // ID job yang sedang ditampilkan (dari query ?job_id=, atau job terbaru jika kosong)
+    public $jobId = null;
+
     public function mount()
     {
-        $job = AnalysisJob::latest()->first();
+        // Poin 4: kalau dibuka dari Riwayat (?job_id=X), tampilkan job ITU.
+        // Kalau tidak ada job_id, fallback ke job terbaru (alur upload baru).
+        $queryJobId = request()->query('job_id');
+        $job = $queryJobId
+            ? AnalysisJob::find($queryJobId)
+            : AnalysisJob::latest()->first();
+
         if (!$job) return;
+
+        // Simpan id job aktif agar dipakai konsisten oleh polling & retry
+        $this->jobId = $job->id;
 
         // 'pending'    = baru didispatch, worker queue belum upload ke Flask
         // 'processing' = Flask sedang menganalisa video di background
@@ -72,7 +84,7 @@ new
     {
         if (!$this->isProcessing) return;
 
-        $job = AnalysisJob::latest()->first();
+        $job = $this->jobId ? AnalysisJob::find($this->jobId) : AnalysisJob::latest()->first();
         if (!$job) return;
 
         try {
@@ -127,7 +139,7 @@ new
      */
     public function retryAnalysis(): void
     {
-        $job = AnalysisJob::latest()->first();
+        $job = $this->jobId ? AnalysisJob::find($this->jobId) : AnalysisJob::latest()->first();
         if (!$job) return;
 
         // Susun ulang videoMap dari file yang tersimpan di storage
